@@ -1,0 +1,23 @@
+# build artifacts
+/dist/
+/build/
+*.egg-info/
+__pycache__/
+*.pyc
+
+# generated output
+/dictionaries/
+/samples/
+*.tsv
+
+# third-party / reverse-engineering inputs (not code; keep out of VCS)
+*.apk
+*.dex
+
+# tooling / local
+/graft/
+/.claude/
+/venv/
+.venv/
+/.ignore
+/REPORT.md

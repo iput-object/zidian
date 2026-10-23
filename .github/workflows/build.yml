@@ -1,0 +1,90 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write        # needed to create releases on tags
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run test suite
+        run: python tests/test_zidian.py
+
+  pyz:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build portable zipapp
+        run: |
+          mkdir -p dist
+          python -m zipapp src --main "zidian.cli:main" \
+            --python "/usr/bin/env python3" --output dist/zidian.pyz --compress
+          python dist/zidian.pyz --help
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" --generate-notes || true
+          gh release upload "$GITHUB_REF_NAME" dist/zidian.pyz \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+  binary:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: zidian-linux-x64
+            out: zidian
+          - os: windows-latest
+            asset: zidian-windows-x64.exe
+            out: zidian.exe
+          - os: macos-latest
+            asset: zidian-macos-arm64
+            out: zidian
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyInstaller
+        run: python -m pip install --upgrade pip pyinstaller
+      - name: Build native binary
+        run: >
+          pyinstaller --onefile --name zidian --clean --noconfirm
+          --paths src --collect-submodules zidian
+          --distpath dist main.py
+      - name: Smoke test
+        shell: bash
+        run: dist/${{ matrix.out }} --help
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mv "dist/${{ matrix.out }}" "dist/${{ matrix.asset }}"
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" --generate-notes || true
+          gh release upload "$GITHUB_REF_NAME" "dist/${{ matrix.asset }}" \
+            --repo "$GITHUB_REPOSITORY" --clobber
